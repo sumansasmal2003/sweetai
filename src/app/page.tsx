@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Send, Sparkles, User, Menu, Plus, MessageSquare, LogIn, LogOut, Compass, Pencil, Trash2, Check, X, Copy, Globe, Image as ImageIcon, Paperclip, FileText, ChevronDown, Code2, GraduationCap, Share2, Search, Music } from "lucide-react";
+import { Send, Sparkles, User, Menu, Plus, MessageSquare, LogIn, LogOut, Compass, Pencil, Trash2, Check, X, Copy, Globe, Image as ImageIcon, Paperclip, FileText, ChevronDown, Code2, GraduationCap, Share2, Search, Music, Link as LinkIcon, Loader2, BookOpen, Terminal, Leaf, Calculator } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -10,11 +10,17 @@ import AuthModal from "@/components/AuthModal";
 type Message = { id: string; role: "user" | "ai"; text: string; sources?: {title: string, url: string}[] };
 type ChatHistoryItem = { _id: string; title: string };
 
-const SUGGESTIONS = [
+const ALL_SUGGESTIONS = [
   { title: "Implement Framer Motion", subtitle: "in a Next.js project", prompt: "Can you explain how to implement page transitions using Framer Motion in a Next.js App Router project?", icon: <Sparkles size={18} className="text-[#a8c7fa]" /> },
-  { title: "Sukumar Ray's literature", subtitle: "summarize his unique style", prompt: "Write a short paragraph summarizing the unique literary style and humor of Bengali author Sukumar Ray.", icon: <Compass size={18} className="text-[#f28b82]" /> },
-  { title: "Growing tomatoes & coriander", subtitle: "best practices for home gardens", prompt: "What are the best seasonal tips and soil practices for growing healthy tomatoes and coriander in a home garden?", icon: <Sparkles size={18} className="text-[#81c995]" /> },
-  { title: "Tea culture", subtitle: "Irani chai vs cutting chai", prompt: "Explain the cultural significance, history, and preparation differences between Irani chai and cutting chai.", icon: <Compass size={18} className="text-[#fde293]" /> }
+  { title: "Sukumar Ray's literature", subtitle: "summarize his unique style", prompt: "Write a short paragraph summarizing the unique literary style and humor of Bengali author Sukumar Ray.", icon: <BookOpen size={18} className="text-[#f28b82]" /> },
+  { title: "Growing tomatoes & coriander", subtitle: "best practices for home gardens", prompt: "What are the best seasonal tips and soil practices for growing healthy tomatoes and coriander in a home garden?", icon: <Leaf size={18} className="text-[#81c995]" /> },
+  { title: "MongoDB Aggregation", subtitle: "complex data pipelines", prompt: "Explain how to write a MongoDB aggregation pipeline to filter, group, and sort a large dataset of service providers.", icon: <Terminal size={18} className="text-[#fde293]" /> },
+  { title: "Tailwind CSS layouts", subtitle: "building responsive dashboards", prompt: "What is the best way to structure a responsive sidebar and main content area layout using Tailwind CSS?", icon: <Code2 size={18} className="text-[#a8c7fa]" /> },
+  { title: "Bibhutibhusan Bandopadhyay", subtitle: "key themes in his novels", prompt: "What are the central themes regarding nature and human life in the writings of Bibhutibhusan Bandopadhyay?", icon: <Compass size={18} className="text-[#f28b82]" /> },
+  { title: "Jagadish Chandra Bose", subtitle: "his scientific legacy", prompt: "Summarize the major scientific contributions of Jagadish Chandra Bose in the fields of plant biology and radio waves.", icon: <GraduationCap size={18} className="text-[#81c995]" /> },
+  { title: "English Grammar", subtitle: "Active to Passive voice", prompt: "Explain the rules for converting Active Voice to Passive Voice in English grammar. Provide the explanations in Bengali but keep the grammar terms in English.", icon: <BookOpen size={18} className="text-[#fde293]" /> },
+  { title: "Advanced Mathematics", subtitle: "explain calculus simply", prompt: "Explain the fundamental concept of a derivative in calculus as if I am a beginner learning basic algebra.", icon: <Calculator size={18} className="text-[#a8c7fa]" /> },
+  { title: "Web Scraping", subtitle: "using Puppeteer securely", prompt: "What are the best practices for setting up Puppeteer in a Node.js backend to scrape dynamic websites without getting blocked?", icon: <Terminal size={18} className="text-[#f28b82]" /> }
 ];
 
 const PERSONAS = [
@@ -29,37 +35,45 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  // Chat History & Modes
   const [chatTitle, setChatTitle] = useState("New Chat");
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
   const [mode, setMode] = useState<"chat" | "image" | "music">("chat");
 
-  // Search State
   const [searchQuery, setSearchQuery] = useState("");
-
-  // Persona States
   const [persona, setPersona] = useState("Default");
   const [isPersonaMenuOpen, setIsPersonaMenuOpen] = useState(false);
 
-  // Document Upload States
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachedFile, setAttachedFile] = useState<{name: string, data: string} | null>(null);
   const [isFileUploading, setIsFileUploading] = useState(false);
 
-  // Editing & UI States
+  // File Preview Modal State
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [isScraping, setIsScraping] = useState(false);
+
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editTitleValue, setEditTitleValue] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
 
-  // Input Menu & Textarea States
   const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auth States
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
+
+  // State to hold the random 4 suggestions
+  const [currentSuggestions, setCurrentSuggestions] = useState<typeof ALL_SUGGESTIONS>([]);
+
+  // Shuffle function to run on mount
+  useEffect(() => {
+    const shuffled = [...ALL_SUGGESTIONS].sort(() => 0.5 - Math.random());
+    setCurrentSuggestions(shuffled.slice(0, 4));
+  }, []);
 
   useEffect(() => {
     const handleResize = () => setIsSidebarOpen(window.innerWidth >= 768);
@@ -68,7 +82,6 @@ export default function Home() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Auto-resize Textarea Effect
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -114,7 +127,7 @@ export default function Home() {
         setMessages(data.chat.messages);
         setChatTitle(data.chat.title);
         setCurrentChatId(data.chat._id);
-        setMode("chat"); // Reset mode when loading an old chat
+        setMode("chat");
       }
     } catch (error) { console.error("Failed to load chat", error); }
   };
@@ -124,6 +137,12 @@ export default function Home() {
     setChatTitle("New Chat");
     setCurrentChatId(null);
     setAttachedFile(null);
+    setShowLinkInput(false);
+
+    // Reshuffle suggestions when starting a new chat
+    const shuffled = [...ALL_SUGGESTIONS].sort(() => 0.5 - Math.random());
+    setCurrentSuggestions(shuffled.slice(0, 4));
+
     if (window.innerWidth < 768) setIsSidebarOpen(false);
   };
 
@@ -174,8 +193,6 @@ export default function Home() {
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
-        console.error("Database refused to share:", errorData);
         alert("Failed to generate share link. Please try again.");
         return;
       }
@@ -246,6 +263,29 @@ export default function Home() {
     reader.readAsDataURL(file);
   };
 
+  const handleScrape = async () => {
+    if (!linkUrl.trim()) return;
+    setIsScraping(true);
+    try {
+      const res = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: linkUrl }),
+      });
+
+      if (!res.ok) throw new Error("Failed to scrape");
+
+      const data = await res.json();
+      setAttachedFile({ name: data.title, data: data.base64Data });
+      setShowLinkInput(false);
+      setLinkUrl("");
+    } catch (error) {
+      alert("Could not scrape the URL. The site might be blocking bots.");
+    } finally {
+      setIsScraping(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -255,7 +295,7 @@ export default function Home() {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!input.trim() || isLoading || isFileUploading) return;
+    if (!input.trim() || isLoading || isFileUploading || isScraping) return;
 
     const currentInput = input;
     const isFirstMessage = messages.length === 0;
@@ -271,8 +311,12 @@ export default function Home() {
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setIsLoading(true);
 
+    const chatHistoryPayload = messages.slice(-10).map(msg => ({
+      role: msg.role === 'ai' ? 'assistant' : 'user',
+      content: msg.text
+    }));
+
     try {
-      // HANDLE IMAGE GENERATION
       if (mode === "image") {
         const res = await fetch("/api/image", {
           method: "POST",
@@ -295,7 +339,6 @@ export default function Home() {
         return;
       }
 
-      // HANDLE MUSIC GENERATION
       if (mode === "music") {
         const res = await fetch("/api/music", {
           method: "POST",
@@ -318,7 +361,6 @@ export default function Home() {
         return;
       }
 
-      // HANDLE STANDARD CHAT
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -328,7 +370,8 @@ export default function Home() {
           webSearch,
           fileData: attachedFile?.data || "",
           fileName: attachedFile?.name || "",
-          persona
+          persona,
+          history: chatHistoryPayload
         }),
       });
 
@@ -395,13 +438,78 @@ export default function Home() {
     }
   };
 
-  // FILTER CHATS LOGIC
   const filteredChats = chatHistory.filter(chat =>
     chat.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const decodeBase64Text = (dataUrl: string) => {
+    try {
+      const base64 = dataUrl.split(',')[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new TextDecoder('utf-8').decode(bytes);
+    } catch (e) {
+      return "Unable to generate preview for this document.";
+    }
+  };
+
   return (
-    <div className="flex h-screen w-full bg-[#131314] text-[#e3e3e3] overflow-hidden font-sans selection:bg-[#a8c7fa]/30 selection:text-white">
+    <div className="flex h-screen w-full bg-[#131314] text-[#e3e3e3] overflow-hidden font-sans selection:bg-[#a8c7fa]/30 selection:text-white relative">
+
+      <AnimatePresence>
+        {isPreviewModalOpen && attachedFile && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-sm"
+            onClick={() => setIsPreviewModalOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={(e) => e.stopPropagation()} // Prevent clicks inside modal from closing it
+              className="w-full max-w-5xl h-[85vh] bg-[#1e1f20] border border-[#444746] rounded-2xl flex flex-col shadow-2xl overflow-hidden"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between p-4 border-b border-[#444746] bg-[#282a2c]">
+                <div className="flex items-center gap-3 overflow-hidden pr-4">
+                  {attachedFile.data.includes("application/pdf") ? (
+                    <FileText size={20} className="text-[#f28b82] shrink-0" />
+                  ) : attachedFile.name.includes("Scraped") || attachedFile.data.includes("URL SOURCE") ? (
+                    <LinkIcon size={20} className="text-[#a8c7fa] shrink-0" />
+                  ) : (
+                    <FileText size={20} className="text-[#a8c7fa] shrink-0" />
+                  )}
+                  <h3 className="text-[#e3e3e3] font-medium text-[16px] truncate">{attachedFile.name}</h3>
+                </div>
+                <button onClick={() => setIsPreviewModalOpen(false)} className="p-1.5 text-[#c4c7c5] hover:text-[#ff5546] hover:bg-[#1e1f20] rounded-lg transition-colors cursor-pointer shrink-0">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="flex-1 overflow-hidden bg-[#131314]">
+                {attachedFile.data.includes('application/pdf') ? (
+                  <iframe
+                    src={attachedFile.data}
+                    className="w-full h-full border-none"
+                    title="PDF Preview"
+                  />
+                ) : (
+                  <div className="w-full h-full overflow-y-auto p-6 text-[#c4c7c5] whitespace-pre-wrap font-mono text-[14px] leading-relaxed custom-scrollbar selection:bg-[#a8c7fa]/30 selection:text-white">
+                    {decodeBase64Text(attachedFile.data)}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isSidebarOpen && (
@@ -559,7 +667,6 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* SHARE BUTTON */}
             {currentChatId && messages.length > 0 && (
                <button
                  onClick={handleShareChat}
@@ -571,7 +678,6 @@ export default function Home() {
                </button>
             )}
 
-            {/* PERSONA DROPDOWN */}
             <div className="relative">
               <button
                 onClick={() => setIsPersonaMenuOpen(!isPersonaMenuOpen)}
@@ -626,7 +732,7 @@ export default function Home() {
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 w-full">
-                {SUGGESTIONS.map((suggestion, index) => (
+                {currentSuggestions.map((suggestion, index) => (
                   <button
                     key={index}
                     onClick={() => handleSuggestionClick(suggestion.prompt)}
@@ -770,12 +876,48 @@ export default function Home() {
             onSubmit={handleSubmit}
             className="max-w-[800px] mx-auto relative flex items-end bg-[#1e1f20] rounded-[24px] focus-within:bg-[#282a2c] transition-colors duration-200 shadow-sm border border-transparent focus-within:border-[#444746]/50 p-1.5 md:p-2"
           >
-            {/* Floating Document Chip */}
+
+            {showLinkInput && (
+              <div className="absolute -top-14 left-4 right-4 md:right-auto md:w-96 flex items-center gap-2 px-3 py-1.5 bg-[#282a2c] rounded-xl border border-[#444746] animate-in fade-in slide-in-from-bottom-2 z-20 shadow-lg">
+                <LinkIcon size={16} className="text-[#a8c7fa] shrink-0" />
+                <input
+                  type="url"
+                  autoFocus
+                  placeholder="Paste article URL to scrape..."
+                  className="flex-1 bg-transparent text-[13px] text-[#e3e3e3] outline-none placeholder-[#c4c7c5]"
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleScrape())}
+                />
+                <button type="button" onClick={handleScrape} disabled={isScraping} className="p-1 cursor-pointer">
+                  {isScraping ? <Loader2 size={16} className="animate-spin text-[#c4c7c5]" /> : <Check size={16} className="text-[#81c995] hover:text-[#a8c7fa] transition-colors" />}
+                </button>
+                <button type="button" onClick={() => { setShowLinkInput(false); setLinkUrl(""); }} className="p-1 cursor-pointer">
+                  <X size={16} className="text-[#ff5546]" />
+                </button>
+              </div>
+            )}
+
+            {/* Clickable Floating Document Chip */}
             {attachedFile && (
-              <div className="absolute -top-14 left-4 flex items-center gap-2 px-3 py-1.5 bg-[#282a2c] rounded-lg border border-[#444746] animate-in fade-in slide-in-from-bottom-2">
-                <FileText size={14} className="text-[#a8c7fa]" />
-                <span className="text-[13px] text-[#e3e3e3] max-w-[200px] truncate">{attachedFile.name}</span>
-                <button type="button" onClick={() => setAttachedFile(null)} className="p-1 text-[#c4c7c5] hover:text-[#ff5546] transition-colors">
+              <div className="absolute -top-14 left-4 flex items-center gap-2 px-3 py-1.5 bg-[#282a2c] rounded-lg border border-[#444746] animate-in fade-in slide-in-from-bottom-2 hover:bg-[#444746] transition-colors shadow-lg z-10">
+                <button
+                  type="button"
+                  onClick={() => setIsPreviewModalOpen(true)}
+                  className="flex items-center gap-2 max-w-[200px] cursor-pointer"
+                  title="Click to preview document"
+                >
+                  {attachedFile.name.includes("Scraped") || attachedFile.data.includes("URL SOURCE") ? (
+                     <LinkIcon size={14} className="text-[#a8c7fa] shrink-0" />
+                  ) : (
+                     <FileText size={14} className="text-[#a8c7fa] shrink-0" />
+                  )}
+                  <span className="text-[13px] text-[#e3e3e3] truncate">{attachedFile.name}</span>
+                </button>
+
+                <div className="w-px h-3 bg-[#444746] mx-0.5" />
+
+                <button type="button" onClick={() => setAttachedFile(null)} className="p-1 text-[#c4c7c5] hover:text-[#ff5546] transition-colors cursor-pointer shrink-0">
                   <X size={14} />
                 </button>
               </div>
@@ -789,7 +931,6 @@ export default function Home() {
               onChange={handleFileUpload}
             />
 
-            {/* Options Menu Button */}
             <div className="relative shrink-0 mb-0.5">
               <button
                 type="button"
@@ -808,11 +949,10 @@ export default function Home() {
                 ) : mode === "music" ? (
                   <Music size={20} className="text-[#a8c7fa]" />
                 ) : (
-                  <Plus size={20} />
+                  <Plus color={attachedFile || webSearch ? "#e3e3e3" : "#c4c7c5"} size={20} />
                 )}
               </button>
 
-              {/* Options Popover Menu */}
               <AnimatePresence>
                 {isOptionsMenuOpen && (
                   <>
@@ -826,17 +966,26 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => { fileInputRef.current?.click(); setIsOptionsMenuOpen(false); }}
-                        disabled={mode === "image" || mode === "music" || isFileUploading}
-                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] disabled:opacity-50"
+                        disabled={mode === "image" || mode === "music" || isFileUploading || showLinkInput}
+                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] disabled:opacity-50 cursor-pointer"
                       >
                         <Paperclip size={16} className="text-[#c4c7c5]" /> Attach Document
                       </button>
 
                       <button
                         type="button"
+                        onClick={() => { setShowLinkInput(true); setIsOptionsMenuOpen(false); }}
+                        disabled={mode === "image" || mode === "music" || isFileUploading}
+                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] disabled:opacity-50 cursor-pointer"
+                      >
+                        <LinkIcon size={16} className="text-[#c4c7c5]" /> Attach Web Link
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => { setWebSearch(!webSearch); setIsOptionsMenuOpen(false); }}
                         disabled={mode === "image" || mode === "music"}
-                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] disabled:opacity-50"
+                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] disabled:opacity-50 cursor-pointer"
                       >
                         <Globe size={16} className={webSearch ? "text-[#4b90ff]" : "text-[#c4c7c5]"} />
                         {webSearch ? "Web Search (On)" : "Web Search (Off)"}
@@ -847,7 +996,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => { setMode("chat"); setIsOptionsMenuOpen(false); }}
-                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3]"
+                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] cursor-pointer"
                       >
                         <MessageSquare size={16} className={mode === "chat" ? "text-[#a8c7fa]" : "text-[#c4c7c5]"} />
                         Switch to Text AI
@@ -856,7 +1005,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => { setMode("image"); setIsOptionsMenuOpen(false); }}
-                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3]"
+                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] cursor-pointer"
                       >
                         <ImageIcon size={16} className={mode === "image" ? "text-[#a8c7fa]" : "text-[#c4c7c5]"} />
                         Generate an Image
@@ -865,7 +1014,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => { setMode("music"); setIsOptionsMenuOpen(false); }}
-                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3]"
+                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] cursor-pointer"
                       >
                         <Music size={16} className={mode === "music" ? "text-[#a8c7fa]" : "text-[#c4c7c5]"} />
                         Generate Music
@@ -876,13 +1025,12 @@ export default function Home() {
               </AnimatePresence>
             </div>
 
-            {/* Auto-expanding Textarea */}
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              disabled={isLoading || isFileUploading}
+              disabled={isLoading || isFileUploading || isScraping}
               placeholder={mode === "image" ? "Describe the image you want to generate..." : mode === "music" ? "Describe the music you want to generate..." : "Message Sweet AI..."}
               className="flex-1 bg-transparent px-3 py-3 md:py-3 text-[15px] md:text-[16px] text-[#e3e3e3] placeholder-[#c4c7c5] focus:outline-none disabled:opacity-50 resize-none custom-scrollbar leading-relaxed"
               rows={1}
@@ -892,8 +1040,8 @@ export default function Home() {
             <div className="shrink-0 mb-0.5 ml-1 mr-1">
               <button
                 type="submit"
-                disabled={!input.trim() || isLoading || isFileUploading}
-                className="p-2.5 rounded-full bg-[#e3e3e3] text-[#131314] hover:bg-[#c4c7c5] transition-all duration-200 disabled:opacity-20 disabled:bg-transparent disabled:text-[#e3e3e3]"
+                disabled={!input.trim() || isLoading || isFileUploading || isScraping}
+                className="p-2.5 rounded-full bg-[#e3e3e3] text-[#131314] hover:bg-[#c4c7c5] transition-all duration-200 disabled:opacity-20 disabled:bg-transparent disabled:text-[#e3e3e3] cursor-pointer"
               >
                 <Send size={18} />
               </button>

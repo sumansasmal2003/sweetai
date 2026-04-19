@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken';
 
 export async function POST(req: Request) {
   try {
-    const { prompt, chatId, webSearch, fileData, fileName, persona } = await req.json();
+    const { prompt, chatId, webSearch, fileData, fileName, persona, history } = await req.json();
 
     const cookieStore = await cookies();
     const token = cookieStore.get('sweet_ai_token')?.value;
@@ -49,7 +49,8 @@ export async function POST(req: Request) {
         web_search: webSearch || false,
         file_data: fileData || "", // 2. Send the Base64 file to Python
         file_name: fileName || "",  // 3. Send the filename so Python knows if it's a PDF
-        persona: persona || "Default"
+        persona: persona || "Default",
+        history: history || []
       }),
     });
 
