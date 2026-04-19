@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Send, Sparkles, User, Menu, Plus, MessageSquare, LogIn, LogOut, Compass, Pencil, Trash2, Check, X, Copy, Globe, Image as ImageIcon, Paperclip, FileText, ChevronDown, Code2, GraduationCap, Share2, Search } from "lucide-react";
+import { Send, Sparkles, User, Menu, Plus, MessageSquare, LogIn, LogOut, Compass, Pencil, Trash2, Check, X, Copy, Globe, Image as ImageIcon, Paperclip, FileText, ChevronDown, Code2, GraduationCap, Share2, Search, Music } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -33,9 +33,9 @@ export default function Home() {
   const [chatTitle, setChatTitle] = useState("New Chat");
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
-  const [mode, setMode] = useState<"chat" | "image">("chat");
+  const [mode, setMode] = useState<"chat" | "image" | "music">("chat");
 
-  // NEW: Search State
+  // Search State
   const [searchQuery, setSearchQuery] = useState("");
 
   // Persona States
@@ -114,6 +114,7 @@ export default function Home() {
         setMessages(data.chat.messages);
         setChatTitle(data.chat.title);
         setCurrentChatId(data.chat._id);
+        setMode("chat"); // Reset mode when loading an old chat
       }
     } catch (error) { console.error("Failed to load chat", error); }
   };
@@ -271,6 +272,7 @@ export default function Home() {
     setIsLoading(true);
 
     try {
+      // HANDLE IMAGE GENERATION
       if (mode === "image") {
         const res = await fetch("/api/image", {
           method: "POST",
@@ -293,6 +295,30 @@ export default function Home() {
         return;
       }
 
+      // HANDLE MUSIC GENERATION
+      if (mode === "music") {
+        const res = await fetch("/api/music", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: currentInput, chatId: currentChatId }),
+        });
+
+        if (!res.ok) throw new Error("Failed to generate music");
+
+        const data = await res.json();
+        const returnedChatId = data.chatId || currentChatId;
+        if (!currentChatId && returnedChatId) setCurrentChatId(returnedChatId);
+
+        setMessages((prev) =>
+          prev.map(msg => msg.id === aiMessageId ? { ...msg, text: data.reply } : msg)
+        );
+
+        if (isFirstMessage) generateTitle(currentInput, returnedChatId);
+        setIsLoading(false);
+        return;
+      }
+
+      // HANDLE STANDARD CHAT
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -406,7 +432,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* NEW: SEARCH BAR */}
             {chatHistory.length > 0 && (
               <div className="px-4 mb-2">
                 <div className="relative group">
@@ -644,6 +669,19 @@ export default function Home() {
                         <div className="pt-1 text-[15px] md:text-[16px] text-transparent bg-clip-text bg-gradient-to-r from-[#4b90ff] via-[#ff5546] to-[#4b90ff] bg-[length:200%_auto] animate-pulse font-medium">
                           Thinking...
                         </div>
+                      ) : msg.text.startsWith('data:audio') ? (
+                        <div className="bg-[#1e1f20] p-4 rounded-xl border border-[#444746] mt-2 shadow-lg w-full max-w-md">
+                          <div className="flex items-center gap-3 mb-3">
+                            <Music className="text-[#a8c7fa]" size={20} />
+                            <span className="text-[#e3e3e3] font-medium text-[15px]">Generated Music Track</span>
+                          </div>
+                          <audio controls className="w-full outline-none">
+                            <source src={msg.text} type="audio/wav" />
+                            Your browser does not support the audio element.
+                          </audio>
+                        </div>
+                      ) : msg.text.startsWith('data:image') ? (
+                        <img src={msg.text} alt="Generated" className="rounded-xl mt-2 max-w-full h-auto border border-[#444746]" />
                       ) : (
                         <div className="prose prose-invert max-w-none prose-p:leading-loose prose-pre:bg-[#1e1f20] prose-pre:rounded-2xl prose-headings:text-[#e3e3e3] prose-strong:text-[#e3e3e3] prose-a:text-[#a8c7fa] prose-p:text-[15px] md:prose-p:text-[16px]">
                           <ReactMarkdown
@@ -757,13 +795,21 @@ export default function Home() {
                 type="button"
                 onClick={() => setIsOptionsMenuOpen(!isOptionsMenuOpen)}
                 className={`p-2.5 rounded-full transition-all duration-200 flex items-center justify-center ${
-                  isOptionsMenuOpen || attachedFile || webSearch || mode === 'image'
+                  isOptionsMenuOpen || attachedFile || webSearch || mode === 'image' || mode === 'music'
                   ? "bg-[#444746] text-[#e3e3e3]"
                   : "text-[#c4c7c5] hover:bg-[#444746] hover:text-[#e3e3e3]"
                 }`}
                 title="Tools & Options"
               >
-                <Plus size={20} className={`transition-transform duration-200 ${isOptionsMenuOpen ? 'rotate-45' : ''}`} />
+                {isOptionsMenuOpen ? (
+                  <X size={20} />
+                ) : mode === "image" ? (
+                  <ImageIcon size={20} className="text-[#a8c7fa]" />
+                ) : mode === "music" ? (
+                  <Music size={20} className="text-[#a8c7fa]" />
+                ) : (
+                  <Plus size={20} />
+                )}
               </button>
 
               {/* Options Popover Menu */}
@@ -780,7 +826,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => { fileInputRef.current?.click(); setIsOptionsMenuOpen(false); }}
-                        disabled={mode === "image" || isFileUploading}
+                        disabled={mode === "image" || mode === "music" || isFileUploading}
                         className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] disabled:opacity-50"
                       >
                         <Paperclip size={16} className="text-[#c4c7c5]" /> Attach Document
@@ -789,7 +835,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={() => { setWebSearch(!webSearch); setIsOptionsMenuOpen(false); }}
-                        disabled={mode === "image"}
+                        disabled={mode === "image" || mode === "music"}
                         className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3] disabled:opacity-50"
                       >
                         <Globe size={16} className={webSearch ? "text-[#4b90ff]" : "text-[#c4c7c5]"} />
@@ -800,11 +846,29 @@ export default function Home() {
 
                       <button
                         type="button"
-                        onClick={() => { setMode(mode === "chat" ? "image" : "chat"); setIsOptionsMenuOpen(false); }}
+                        onClick={() => { setMode("chat"); setIsOptionsMenuOpen(false); }}
                         className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3]"
                       >
-                        {mode === "image" ? <MessageSquare size={16} className="text-[#a8c7fa]" /> : <ImageIcon size={16} className="text-[#a8c7fa]" />}
-                        {mode === "image" ? "Switch to Text AI" : "Generate an Image"}
+                        <MessageSquare size={16} className={mode === "chat" ? "text-[#a8c7fa]" : "text-[#c4c7c5]"} />
+                        Switch to Text AI
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setMode("image"); setIsOptionsMenuOpen(false); }}
+                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3]"
+                      >
+                        <ImageIcon size={16} className={mode === "image" ? "text-[#a8c7fa]" : "text-[#c4c7c5]"} />
+                        Generate an Image
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setMode("music"); setIsOptionsMenuOpen(false); }}
+                        className="flex items-center gap-3 w-full px-4 py-3 text-[14px] text-left hover:bg-[#444746] transition-colors text-[#e3e3e3]"
+                      >
+                        <Music size={16} className={mode === "music" ? "text-[#a8c7fa]" : "text-[#c4c7c5]"} />
+                        Generate Music
                       </button>
                     </motion.div>
                   </>
@@ -819,7 +883,7 @@ export default function Home() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={isLoading || isFileUploading}
-              placeholder={mode === "image" ? "Describe the image you want to generate..." : "Message Sweet AI..."}
+              placeholder={mode === "image" ? "Describe the image you want to generate..." : mode === "music" ? "Describe the music you want to generate..." : "Message Sweet AI..."}
               className="flex-1 bg-transparent px-3 py-3 md:py-3 text-[15px] md:text-[16px] text-[#e3e3e3] placeholder-[#c4c7c5] focus:outline-none disabled:opacity-50 resize-none custom-scrollbar leading-relaxed"
               rows={1}
               style={{ minHeight: '44px', maxHeight: '200px' }}
