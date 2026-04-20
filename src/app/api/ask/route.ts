@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import connectToDatabase from '@/lib/mongodb';
 import Chat from '@/models/Chat';
+import User from '@/models/User'; // <-- IMPORTED USER MODEL
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 
@@ -20,11 +21,32 @@ export async function POST(req: Request) {
       } catch (e) {}
     }
 
+    // --- NEW: CREDIT PROTECTION LOGIC ---
+    if (!userId) {
+      return new Response(
+        JSON.stringify({ error: "Please sign in to use Sweet AI." }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    await connectToDatabase();
+    const user = await User.findById(userId);
+
+    if (!user || user.credits < 1) {
+      return new Response(
+        JSON.stringify({ error: "Insufficient credits. Please top up your balance.", code: "OUT_OF_CREDITS" }),
+        { status: 402, headers: { 'Content-Type': 'application/json' } } // 402 Payment Required
+      );
+    }
+
+    // Deduct 1 credit for text generation
+    await User.findByIdAndUpdate(userId, { $inc: { credits: -1 } });
+    // ------------------------------------
+
     let currentChatId = chatId;
     const userMsg = { id: Date.now().toString(), role: "user", text: prompt };
 
     if (userId) {
-      await connectToDatabase();
       if (currentChatId) {
         await Chat.findOneAndUpdate(
           { _id: currentChatId, userId },
@@ -47,8 +69,8 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         prompt,
         web_search: webSearch || false,
-        file_data: fileData || "", // 2. Send the Base64 file to Python
-        file_name: fileName || "",  // 3. Send the filename so Python knows if it's a PDF
+        file_data: fileData || "",
+        file_name: fileName || "",
         persona: persona || "Default",
         history: history || []
       }),

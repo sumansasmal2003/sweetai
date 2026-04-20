@@ -1,7 +1,7 @@
 // src/app/api/music/route.ts
-import { NextResponse } from "next/server";
 import connectToDatabase from "@/lib/mongodb";
 import Chat from "@/models/Chat";
+import User from "@/models/User"; // <-- IMPORTED USER MODEL
 import { cookies } from "next/headers";
 import jwt from "jsonwebtoken";
 
@@ -16,50 +16,91 @@ export async function POST(req: Request) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
         userId = decoded.userId;
-      } catch (e) {
-        console.error("Invalid token format");
+      } catch (e) {}
+    }
+
+    // --- NEW: CREDIT PROTECTION LOGIC ---
+    if (!userId) {
+      return new Response(
+        JSON.stringify({ error: "Please sign in to use Sweet AI." }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    await connectToDatabase();
+    const user = await User.findById(userId);
+
+    if (!user || user.credits < 10) {
+      return new Response(
+        JSON.stringify({ error: "Insufficient credits. Please top up your balance.", code: "OUT_OF_CREDITS" }),
+        { status: 402, headers: { 'Content-Type': 'application/json' } } // 402 Payment Required
+      );
+    }
+
+    // Deduct 10 credits for extreme heavy Music generation
+    await User.findByIdAndUpdate(userId, { $inc: { credits: -10 } });
+    // ------------------------------------
+
+    let targetChatId = chatId;
+    const userMsg = { id: Date.now().toString(), role: "user", text: prompt };
+
+    if (userId) {
+      // Note: We already called connectToDatabase() above
+      if (targetChatId) {
+        await Chat.findByIdAndUpdate(targetChatId, { $push: { messages: userMsg } });
+      } else {
+        const newChat = await Chat.create({ userId, title: "New Music Chat", messages: [userMsg] });
+        targetChatId = newChat._id.toString();
       }
     }
 
-    // 1. Forward the request to your Hugging Face Backend
     const backendRes = await fetch(`${process.env.COLAB_API_URL}/generate-music`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
     });
 
-    const data = await backendRes.json();
+    const reader = backendRes.body?.getReader();
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
 
-    if (!backendRes.ok) {
-        return NextResponse.json({ error: data.error || "Music generation failed" }, { status: backendRes.status });
-    }
+    const stream = new ReadableStream({
+      async start(controller) {
+        if (!reader) { controller.close(); return; }
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-    // 2. Save the User Prompt and the Audio Data URI to MongoDB
-    await connectToDatabase();
-    const userMsg = { id: Date.now().toString(), role: "user", text: prompt };
-    const aiMsg = { id: (Date.now() + 1).toString(), role: "ai", text: data.audio }; // Stores the base64 audio
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
 
-    let targetChatId = chatId;
-    if (targetChatId) {
-      await Chat.findByIdAndUpdate(targetChatId, {
-        $push: { messages: { $each: [userMsg, aiMsg] } }
-      });
-    } else if (userId) {
-      const newChat = await Chat.create({
-        userId,
-        title: "New Music Chat",
-        messages: [userMsg, aiMsg]
-      });
-      targetChatId = newChat._id;
-    }
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
 
-    return NextResponse.json({
-      reply: data.audio,
-      chatId: targetChatId,
-      enhanced_prompt: data.enhanced_prompt
+                  if (data.status) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ status: data.status })}\n\n`));
+                  } else if (data.audio) {
+                    if (userId && targetChatId) {
+                      const aiMsg = { id: (Date.now() + 1).toString(), role: "ai", text: data.audio };
+                      await Chat.findByIdAndUpdate(targetChatId, { $push: { messages: aiMsg } });
+                    }
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ reply: data.audio, chatId: targetChatId })}\n\n`));
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+        } finally {
+          controller.close();
+        }
+      }
     });
+
+    return new Response(stream, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' } });
   } catch (error) {
-    console.error("Music API Error:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return new Response(JSON.stringify({ error: "Internal Server Error" }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }
